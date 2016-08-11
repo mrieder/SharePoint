@@ -60,6 +60,7 @@ if($TemplateName)
         #Creating the Document Library with custom template     
         foreach ($item in $inputlist)
         {
+            Write-Host "Creating Library " $item.Title -ForegroundColor Yellow
             $Web.Lists.Add($item.Number,$item.Description,$CustomTemplate) | Out-Null
             #change List Name
             $Library = $Web.Lists[$item.Number.ToString()]
