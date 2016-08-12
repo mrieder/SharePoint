@@ -1,28 +1,28 @@
 ﻿<###################################################################################
-# Creates SharePoint Document Library with unput file (SP-BatchListCreate.ps1)
+# Adds defined Group of Content Types, creates defined Folders and creates a OneNote
+# Notebook in a list of Document Libraries
 #
 # DESCRIPTION
 #
 # Created By: Matthias Rieder, 2016-08-02
 #
-#             $WebUrl - Url to SharePoint Web          
+#             $WebUrl - Url to SharePoint Web
+#             $SourceFile - Path to inputfile          
 #
-# Usage: ./SP-ActivateCustomerListFeatures.ps1 -web <String> -sourcefile <String>
+# Usage: ./SP-ActivateListFeatures.ps1 -web <String> -sourcefile <String>
 ###################################################################################>
 
 #Parameter Definition
 param
 (
   #[PARAMETER(Mandatory=$false,HelpMessage="Keyword for Running Mode")][ValidateSet("WhatIf", "Execute")][String]$RunningMode="WhatIf",
-  [PARAMETER(Mandatory=$true,HelpMessage="Url to SharePoint Web")][String]$WebUrl
+  [PARAMETER(Mandatory=$true,HelpMessage="Url to SharePoint Web")][String]$WebUrl,
+  [PARAMETER(Mandatory=$true,HelpMessage="Path to input file in txt format")][String]$SourceFile
   )
 
 #Check if PS snap-in is loaded an load if not
 $spsnapin = Get-PSSnapin -Name Microsoft.Sharepoint.Powershell –erroraction SilentlyContinue 
 if (!$spsnapin) { "Loading VMware PowerShell snap-in..."; Add-PSSnapin Microsoft.Sharepoint.Powershell }
-
-#define Folders to create in docLibrary
-$FoldersToCreate = @("Archive","Incident Reports","Licenses","Mail Communication")
 
 #Open Web and Site Collection
 try 
@@ -37,12 +37,21 @@ catch
   exit
 }
 
+#import List for Folder creation
+try 
+{
+  $inputlist = Get-Content $SourceFile -ErrorAction Stop
+}
+catch
+{
+  Write-Host "Please insert a valid Path to txt File" -ForegroundColor Red
+  exit
+}
+
 #Changing the Document Library Title
-Write-Host "Changing List Settings to defined policy for Customer Library"
+Write-Host "Changing List Settings to defined policy for Customer Library" -ForegroundColor Green
 foreach ($docLibrary in ($Web.Lists | ? {$_.Title -match '^[0-9]{1,6}.*$' -and $_.Title -notmatch '^000000.*$'}))
 {
-    Write-Host "Updating... " -NoNewline; Write-Host $Library -ForegroundColor Yellow
-  
     try 
     {
         #Enabling "Allow management of content types"
@@ -50,39 +59,46 @@ foreach ($docLibrary in ($Web.Lists | ? {$_.Title -match '^[0-9]{1,6}.*$' -and $
          #Add content type to list
         foreach ($ctToAdd in $Web.Site.RootWeb.ContentTypes |? {$_.Group -eq "ACS Custom Content Types"})
         {
-            $docLibrary.ContentTypes.Add($ctToAdd)
-            write-host "Content type" $ctToAdd.Name "added to list" $docLibrary.Title
+            #check if Content Type is already in list
+            if (!$docLibrary.ContentTypes[$ctToAdd.Name]) {
+                $docLibrary.ContentTypes.Add($ctToAdd) | Out-Null
+                Write-Host "List "-NoNewline; Write-Host $docLibrary.Title -ForegroundColor Yellow -NoNewline
+                Write-Host " - added content type: " -NoNewline; Write-Host $ctToAdd.Name -ForegroundColor Yellow 
+            }
         }
         
+        $docLibrary.Update()
+
         #create defined Folders
-        foreach ($name in $FoldersToCreate)
+        foreach ($name in $inputlist)
         {
-            $folder = $docLibrary.AddItem("",[Microsoft.SharePoint.SPFileSystemObjectType]::Folder,$name.ToString())
-            $folder.Update()
+            #check if Folder already exits
+            if (!($docLibrary.Folders | ? {$_.Name -eq $name}))
+            {
+                $folder = $docLibrary.AddItem("",[Microsoft.SharePoint.SPFileSystemObjectType]::Folder,$name.ToString())
+                $folder.Update()
+                Write-Host "List "-NoNewline; Write-Host $docLibrary.Title -ForegroundColor Yellow -NoNewline
+                Write-Host " - added folder: " -NoNewline; Write-Host $name -ForegroundColor Yellow 
+            }
         }
-
-        #creating OneNote notebook
-
+                
         #check for exisiting NoteBook
         $NoteBookPresent = $false
           
-        if($docLibrary.Items | ? { $_.Name -match '^\D+\.onetoc2$'})
+        if($docLibrary.Folders | ? {$_.ProgId -eq "OneNote.Notebook"})
         {
             $NoteBookPresent = $true
         }
-
-
-        If(!$NoteBookPresent)
+      
+        #creating OneNote notebook
+        if(!$NoteBookPresent)
         {
-            $folder = $docLibrary.AddItem("",[Microsoft.SharePoint.SPFileSystemObjectType]::Folder,$item.ToString())
+            $folder = $docLibrary.AddItem("",[Microsoft.SharePoint.SPFileSystemObjectType]::Folder,"Notebook")
+            $folder.ProgId ="OneNote.Notebook"
             $folder.Update()
+            Write-Host "List "-NoNewline; Write-Host $docLibrary.Title -ForegroundColor Yellow -NoNewline
+            Write-Host " - Notebook created"
         }
-
-
-        $docLibrary.Items
-
-
-        ###
 
         $docLibrary.Update()
     }
@@ -94,3 +110,4 @@ foreach ($docLibrary in ($Web.Lists | ? {$_.Title -match '^[0-9]{1,6}.*$' -and $
         exit
     }   
 }
+
